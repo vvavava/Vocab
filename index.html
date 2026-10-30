@@ -211,6 +211,7 @@ function render(loading){
       <h1>단어장</h1>
       <div>
         <button class="ghost" data-act="manage">${manage ? '완료' : '카테고리'}</button>
+        <button class="ghost" data-act="sheet">시트</button>
         <button class="ghost" data-act="logout">로그아웃</button>
       </div>
     </header>
@@ -279,6 +280,14 @@ document.addEventListener('click', async e => {
   const a = t.dataset.act;
 
   if (a === 'login') return login();
+    if (a === 'sheet'){
+    const v = prompt('연결할 구글 시트 주소를 붙여넣으세요.\n(폰과 PC 모두 같은 주소를 넣어야 해요)', sheetId ? `https://docs.google.com/spreadsheets/d/${sheetId}` : '');
+    if (!v) return;
+    const m = v.match(/spreadsheets\/d\/([a-zA-Z0-9-_]+)/);
+    sheetId = m ? m[1] : v.trim();
+    localStorage.setItem('sheetId', sheetId);
+    return start();
+  }
   if (a === 'logout') return logout();
   if (a === 'manage'){ manage = !manage; return render(); }
   if (a === 'cat'){ cur = t.dataset.cat; return render(); }
