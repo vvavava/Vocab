@@ -1,0 +1,347 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="단어장">
+<meta name="theme-color" content="#fdf7f2">
+<title>단어장</title>
+<script src="https://accounts.google.com/gsi/client" async defer></script>
+<style>
+:root{--bg:#fdf7f2;--card:#fff;--line:#eee6f8;--ink:#3d3556;--sub:#b3adc4;--mid:#7d7694;--lav:#b9a4ee;--lavbg:#f1ecfd;--peach:#ffd9c7;--mint:#d6f2e7}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:-apple-system,BlinkMacSystemFont,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;-webkit-font-smoothing:antialiased;min-height:100vh}
+#app{max-width:480px;margin:0 auto;padding:calc(env(safe-area-inset-top) + 16px) 16px calc(env(safe-area-inset-bottom) + 40px)}
+header{display:flex;justify-content:space-between;align-items:center;margin-bottom:14px}
+h1{font-size:22px;margin:0;font-weight:700;letter-spacing:-.3px}
+.ghost{background:none;border:0;color:var(--mid);font-size:14px;padding:6px 4px;cursor:pointer}
+.chips{display:flex;gap:8px;overflow-x:auto;padding:2px 0 14px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.chip{flex:none;border:0;border-radius:999px;background:#fff;color:var(--mid);padding:7px 14px;font-size:14px;cursor:pointer;box-shadow:0 1px 2px rgba(60,40,100,.06)}
+.chip.on{background:var(--lav);color:#fff}
+.chip b{margin-left:6px;color:#e07a8a}
+.panel{background:var(--card);border-radius:20px;padding:16px 18px;box-shadow:0 4px 18px rgba(90,70,140,.07);margin-bottom:18px}
+.in{width:100%;border:0;outline:0;background:transparent;font:inherit;color:var(--ink);padding:6px 0;font-size:16px}
+.in.w{font-size:22px;font-weight:700;border-bottom:1px solid var(--line);padding-bottom:8px}
+.in.p{font-size:13px;color:var(--mid)}
+.in.ex{font-size:13px;color:var(--sub);font-style:italic}
+select.in{font-size:14px;color:var(--mid);padding:6px 0;width:auto}
+textarea.in{resize:none}
+.row{display:flex;gap:8px;align-items:center;margin-top:8px}
+.btn{border:0;border-radius:14px;background:var(--lav);color:#fff;font-size:15px;font-weight:600;padding:11px 18px;cursor:pointer}
+.btn.soft{background:var(--lavbg);color:var(--mid)}
+.btn.danger{background:#f8d7de;color:#b5475c}
+.list{display:flex;flex-direction:column;gap:10px}
+.card{background:#fff;border-radius:18px;padding:16px 18px;box-shadow:0 2px 10px rgba(90,70,140,.05);cursor:pointer;border-left:4px solid var(--peach)}
+.card:active{transform:scale(.99)}
+.word{font-size:24px;font-weight:700;letter-spacing:-.3px}
+.pron{font-size:13px;color:var(--sub);margin-left:8px}
+.mean{font-size:16px;margin-top:4px}
+.ex{font-size:13px;color:var(--sub);font-style:italic;margin-top:6px;line-height:1.45}
+.tag{display:inline-block;margin-top:8px;font-size:11px;background:var(--mint);color:#4d8a72;padding:3px 9px;border-radius:999px}
+.empty{text-align:center;color:var(--sub);padding:40px 0;font-size:14px}
+.intro{text-align:center;padding-top:28vh}
+.intro .lead{color:var(--mid);line-height:1.6;margin:14px 0 26px}
+.overlay{position:fixed;inset:0;background:rgba(61,53,86,.25);display:none;align-items:flex-end;justify-content:center;z-index:10}
+.overlay.show{display:flex}
+.sheet{background:#fff;width:100%;max-width:480px;border-radius:24px 24px 0 0;padding:22px 20px calc(env(safe-area-inset-bottom) + 20px);animation:up .25s ease}
+@keyframes up{from{transform:translateY(30px);opacity:0}}
+label.lbl{font-size:12px;color:var(--sub);display:block;margin-top:12px}
+.toast{position:fixed;left:50%;bottom:calc(env(safe-area-inset-bottom) + 30px);transform:translateX(-50%);background:var(--ink);color:#fff;padding:10px 16px;border-radius:999px;font-size:14px;opacity:0;transition:opacity .25s;pointer-events:none;white-space:nowrap}
+.toast.show{opacity:1}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="ov" class="overlay"></div>
+<div id="toast" class="toast"></div>
+
+<script>
+/* ===== 설정: 구글 클라우드에서 발급받은 OAuth 클라이언트 ID를 넣으세요 ===== */
+const CLIENT_ID = '305517203153-l92tp8tpvfncs7rtpp41c5du69kho4av.apps.googleusercontent.com';
+
+const SCOPE = 'https://www.googleapis.com/auth/spreadsheets';
+const API = 'https://sheets.googleapis.com/v4/spreadsheets';
+const HEAD = ['단어','발음','뜻','예문','설명','카테고리'];
+
+let tokenClient, token = null;
+let sheetId = localStorage.getItem('sheetId');
+let words = [], cats = [], cur = '전체', manage = false, editI = -1;
+
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const rowOf = w => [w.word, w.pron, w.meaning, w.example, w.note, w.category];
+
+function toast(msg){
+  const t = $('#toast'); t.textContent = msg; t.classList.add('show');
+  clearTimeout(t._h); t._h = setTimeout(() => t.classList.remove('show'), 1600);
+}
+
+/* ---------- 로그인 ---------- */
+window.addEventListener('load', () => {
+  tokenClient = google.accounts.oauth2.initTokenClient({
+    client_id: CLIENT_ID,
+    scope: SCOPE,
+    callback: r => {
+      if (r.error) return toast('로그인에 실패했어요');
+      token = r.access_token;
+      localStorage.setItem('tok', JSON.stringify({ t: token, e: Date.now() + (r.expires_in - 60) * 1000 }));
+      start();
+    }
+  });
+  const saved = JSON.parse(localStorage.getItem('tok') || 'null');
+  if (saved && saved.e > Date.now()) { token = saved.t; start(); }
+  else render();
+});
+
+function login(){ tokenClient.requestAccessToken(); }
+function logout(){ token = null; localStorage.removeItem('tok'); render(); }
+
+async function start(){
+  render(true);
+  try { await ensureSheet(); await loadAll(); }
+  catch (e) { console.error(e); if (e.message !== 'auth') toast('데이터를 불러오지 못했어요'); }
+  render();
+}
+
+/* ---------- 구글 시트 API ---------- */
+async function api(url, opt = {}){
+  const res = await fetch(url, {
+    method: opt.method || 'GET',
+    headers: { 'Authorization': 'Bearer ' + token, 'Content-Type': 'application/json' },
+    body: opt.body
+  });
+  if (res.status === 401){ logout(); throw new Error('auth'); }
+  if (!res.ok) throw new Error(await res.text());
+  return res.json();
+}
+
+async function ensureSheet(){
+  if (sheetId) return;
+  const r = await api(API, { method: 'POST', body: JSON.stringify({
+    properties: { title: 'My Words' },
+    sheets: [{ properties: { title: 'words' } }, { properties: { title: 'categories' } }]
+  })});
+  sheetId = r.spreadsheetId;
+  localStorage.setItem('sheetId', sheetId);
+  await api(`${API}/${sheetId}/values:batchUpdate`, { method: 'POST', body: JSON.stringify({
+    valueInputOption: 'RAW',
+    data: [
+      { range: 'words!A1:F1', values: [HEAD] },
+      { range: 'categories!A1:A2', values: [['카테고리'], ['일반']] }
+    ]
+  })});
+}
+
+async function loadAll(){
+  const [w, c] = await Promise.all([
+    api(`${API}/${sheetId}/values/words!A2:F1000`),
+    api(`${API}/${sheetId}/values/categories!A2:A200`)
+  ]);
+  words = (w.values || []).map((r, i) => ({
+    row: i + 2,
+    word: r[0] || '', pron: r[1] || '', meaning: r[2] || '',
+    example: r[3] || '', note: r[4] || '', category: r[5] || ''
+  })).filter(x => x.word);
+  cats = (c.values || []).map(r => r[0]).filter(Boolean);
+}
+
+const saveRow = w => api(`${API}/${sheetId}/values/words!A${w.row}:F${w.row}?valueInputOption=USER_ENTERED`,
+  { method: 'PUT', body: JSON.stringify({ values: [rowOf(w)] }) });
+
+async function saveCats(){
+  await api(`${API}/${sheetId}/values/categories!A2:A500:clear`, { method: 'POST', body: '{}' });
+  if (cats.length) await api(`${API}/${sheetId}/values/categories!A2?valueInputOption=RAW`,
+    { method: 'PUT', body: JSON.stringify({ values: cats.map(c => [c]) }) });
+}
+
+async function run(fn, msg){
+  try { await fn(); if (msg) toast(msg); }
+  catch (err) { console.error(err); if (err.message !== 'auth') toast('저장에 실패했어요'); }
+  render();
+}
+
+/* ---------- 발음기호 자동 가져오기 (영어 사전 API, 키 불필요) ---------- */
+async function fetchPron(word){
+  try {
+    const r = await fetch('https://api.dictionaryapi.dev/api/v2/entries/en/' + encodeURIComponent(word.trim().toLowerCase()));
+    if (!r.ok) return '';
+    const d = await r.json();
+    return d[0].phonetic || (d[0].phonetics || []).find(p => p.text)?.text || '';
+  } catch { return ''; }
+}
+
+/* ---------- 화면 ---------- */
+function catOptions(sel){
+  return `<option value="">카테고리 없음</option>` +
+    cats.map(c => `<option ${c === sel ? 'selected' : ''}>${esc(c)}</option>`).join('');
+}
+
+function render(loading){
+  const app = $('#app');
+  if (!token){
+    app.innerHTML = `<div class="intro">
+      <div style="font-size:40px">✎</div>
+      <p class="lead">영단어를 구글 시트에 모아두는<br>나만의 단어장</p>
+      <button class="btn" data-act="login">구글로 로그인</button></div>`;
+    return;
+  }
+  if (loading){ app.innerHTML = `<div class="empty">불러오는 중…</div>`; return; }
+
+  if (cur !== '전체' && !cats.includes(cur)) cur = '전체';
+  const defCat = cur !== '전체' ? cur : '';
+
+  const chips = ['전체', ...cats].map(c =>
+    `<button class="chip ${c === cur ? 'on' : ''}" data-act="cat" data-cat="${esc(c)}">${esc(c)}${manage && c !== '전체' ? `<b data-act="delcat" data-cat="${esc(c)}">×</b>` : ''}</button>`
+  ).join('') + (manage ? `<button class="chip" data-act="addcat">+ 추가</button>` : '');
+
+  const list = words.map((w, i) => ({ w, i })).filter(({ w }) => cur === '전체' || w.category === cur);
+  const cards = list.length ? list.map(({ w, i }) => `
+    <article class="card" data-act="open" data-i="${i}">
+      <div><span class="word">${esc(w.word)}</span>${w.pron ? `<span class="pron">${esc(w.pron)}</span>` : ''}</div>
+      ${w.meaning ? `<div class="mean">${esc(w.meaning)}</div>` : ''}
+      ${w.example ? `<div class="ex">${esc(w.example)}</div>` : ''}
+      ${cur === '전체' && w.category ? `<span class="tag">${esc(w.category)}</span>` : ''}
+    </article>`).join('') : `<div class="empty">아직 단어가 없어요</div>`;
+
+  app.innerHTML = `
+    <header>
+      <h1>단어장</h1>
+      <div>
+        <button class="ghost" data-act="manage">${manage ? '완료' : '카테고리'}</button>
+        <button class="ghost" data-act="logout">로그아웃</button>
+      </div>
+    </header>
+    <div class="chips">${chips}</div>
+    <div class="panel">
+      <input id="w" class="in w" placeholder="영단어" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <input id="p" class="in p" placeholder="발음기호 (자동으로 채워져요)" style="margin-top:6px">
+      <input id="m" class="in" placeholder="한글 뜻" style="margin-top:6px">
+      <input id="e" class="in ex" placeholder="예문 한 줄 (선택)" style="margin-top:4px">
+      <div class="row" style="justify-content:space-between">
+        <select id="c" class="in">${catOptions(defCat)}</select>
+        <button class="btn" data-act="add">추가</button>
+      </div>
+    </div>
+    <div class="list">${cards}</div>`;
+}
+
+/* ---------- 단어 추가 / 수정 / 삭제 ---------- */
+async function addWord(){
+  const word = $('#w').value.trim();
+  if (!word) return toast('단어를 입력해 주세요');
+  const w = {
+    word,
+    pron: $('#p').value.trim(),
+    meaning: $('#m').value.trim(),
+    example: $('#e').value.trim(),
+    note: '',
+    category: $('#c').value
+  };
+  toast('저장 중…');
+  if (!w.pron) w.pron = await fetchPron(word);
+  await run(async () => {
+    await api(`${API}/${sheetId}/values/words!A:F:append?valueInputOption=USER_ENTERED&insertDataOption=INSERT_ROWS`,
+      { method: 'POST', body: JSON.stringify({ values: [rowOf(w)] }) });
+    await loadAll();
+  }, '추가됨');
+}
+
+function openEdit(i){
+  editI = i;
+  const w = words[i];
+  $('#ov').innerHTML = `<div class="sheet">
+    <div class="word" style="font-size:28px">${esc(w.word)}</div>
+    <label class="lbl">발음</label><input id="ep" class="in" value="${esc(w.pron)}">
+    <label class="lbl">뜻</label><input id="em" class="in" value="${esc(w.meaning)}">
+    <label class="lbl">예문</label><textarea id="ee" class="in" rows="2">${esc(w.example)}</textarea>
+    <label class="lbl">설명 메모</label><textarea id="en" class="in" rows="3">${esc(w.note)}</textarea>
+    <label class="lbl">카테고리</label><select id="ec" class="in" style="width:100%">${catOptions(w.category)}</select>
+    <div class="row" style="justify-content:space-between;margin-top:18px">
+      <button class="btn danger" data-act="del">삭제</button>
+      <div class="row" style="margin:0">
+        <button class="btn soft" data-act="close">닫기</button>
+        <button class="btn" data-act="save">저장</button>
+      </div>
+    </div>
+  </div>`;
+  $('#ov').classList.add('show');
+}
+
+function closeEdit(){ $('#ov').classList.remove('show'); editI = -1; }
+
+/* ---------- 이벤트 ---------- */
+document.addEventListener('click', async e => {
+  const t = e.target.closest('[data-act]');
+  if (!t) return;
+  const a = t.dataset.act;
+
+  if (a === 'login') return login();
+  if (a === 'logout') return logout();
+  if (a === 'manage'){ manage = !manage; return render(); }
+  if (a === 'cat'){ cur = t.dataset.cat; return render(); }
+  if (a === 'add') return addWord();
+  if (a === 'open') return openEdit(+t.dataset.i);
+  if (a === 'close') return closeEdit();
+
+  if (a === 'addcat'){
+    const n = (prompt('새 카테고리 이름') || '').trim();
+    if (!n) return;
+    if (cats.includes(n)) return toast('이미 있는 카테고리예요');
+    cats.push(n);
+    return run(saveCats, '카테고리 추가됨');
+  }
+
+  if (a === 'delcat'){
+    const n = t.dataset.cat;
+    if (!confirm(`'${n}' 카테고리를 삭제할까요?\n이 카테고리의 단어는 남고 카테고리만 비워져요.`)) return;
+    const changed = words.filter(w => w.category === n);
+    cats = cats.filter(c => c !== n);
+    changed.forEach(w => w.category = '');
+    if (cur === n) cur = '전체';
+    return run(async () => {
+      await saveCats();
+      for (const w of changed) await saveRow(w);
+    }, '삭제됨');
+  }
+
+  if (a === 'save'){
+    const w = words[editI];
+    Object.assign(w, {
+      pron: $('#ep').value.trim(),
+      meaning: $('#em').value.trim(),
+      example: $('#ee').value.trim(),
+      note: $('#en').value.trim(),
+      category: $('#ec').value
+    });
+    closeEdit();
+    return run(() => saveRow(w), '저장됨');
+  }
+
+  if (a === 'del'){
+    const w = words[editI];
+    if (!confirm(`'${w.word}' 단어를 삭제할까요?`)) return;
+    closeEdit();
+    return run(async () => {
+      await api(`${API}/${sheetId}/values/words!A${w.row}:F${w.row}:clear`, { method: 'POST', body: '{}' });
+      words = words.filter(x => x !== w);
+    }, '삭제됨');
+  }
+});
+
+// 단어 입력 후 포커스를 벗어나면 발음기호 자동 채우기
+document.addEventListener('change', async e => {
+  if (e.target.id !== 'w') return;
+  const pEl = $('#p');
+  if (pEl && !pEl.value.trim()){
+    const p = await fetchPron(e.target.value);
+    if (p && $('#p') && !$('#p').value.trim()) $('#p').value = p;
+  }
+});
+
+$('#ov').addEventListener('click', e => { if (e.target.id === 'ov') closeEdit(); });
+</script>
+</body>
+</html>
