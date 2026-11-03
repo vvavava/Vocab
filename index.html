@@ -81,6 +81,8 @@ function toast(msg){
 
 /* ---------- 로그인 ---------- */
 window.addEventListener('load', () => {
+  render();
+  if (!window.google) { toast('구글 로그인 스크립트를 못 불러왔어요'); return; }
   tokenClient = google.accounts.oauth2.initTokenClient({
     client_id: CLIENT_ID,
     scope: SCOPE,
@@ -93,7 +95,6 @@ window.addEventListener('load', () => {
   });
   const saved = JSON.parse(localStorage.getItem('tok') || 'null');
   if (saved && saved.e > Date.now()) { token = saved.t; start(); }
-  else render();
 });
 
 function login(){ tokenClient.requestAccessToken(); }
